@@ -20,6 +20,7 @@ from rest_framework import serializers
 from rest_framework.fields import CreateOnlyDefault, DictField, UUIDField
 from rest_framework.metadata import SimpleMetadata
 from rest_framework.relations import ManyRelatedField
+from rest_framework.utils.field_mapping import get_field_kwargs
 from taggit_serializer.serializers import TaggitSerializer, TagListSerializerField
 
 from course_discovery.apps.api.fields import (
@@ -85,6 +86,27 @@ SELECT_RELATED_FIELDS = {
     'course': ['level_type', 'partner', 'video'],
     'course_run': ['course', 'language', 'video'],
 }
+
+
+# implementation from drf-haystack 1.8.2, new implementation somehow doesn't recognize/filter OneToOne or ForiegnKey
+# fields and DRF fails while calling validators for those fields
+
+def get_default_field_kwargs(model, field):
+    kwargs = {}
+    if field.model_attr in model._meta.get_fields():
+        model_field = model._meta.get_field(field.model_attr)[0]
+        kwargs = get_field_kwargs(field.model_attr, model_field)
+
+        delete_attrs = [
+            "allow_blank",
+            "choices",
+            "model_field",
+        ]
+        for attr in delete_attrs:
+            if attr in kwargs:
+                del kwargs[attr]
+
+    return kwargs
 
 
 def get_marketing_url_for_user(partner, user, marketing_url, exclude_utm=False, draft=False, official_version=None):
@@ -1836,6 +1858,10 @@ class CourseSearchSerializer(HaystackSerializer):
     course_runs = serializers.SerializerMethodField()
     seat_types = serializers.SerializerMethodField()
 
+    @staticmethod
+    def _get_default_field_kwargs(model, field):
+        return get_default_field_kwargs(model, field)
+
     def get_course_runs(self, result):
         request = self.context['request']
         course_runs = result.object.course_runs.all()
@@ -1991,6 +2017,10 @@ class PersonSearchSerializer(HaystackSerializer):
 
     def get_profile_image_url(self, result):
         return result.object.get_profile_image_url
+
+    @staticmethod
+    def _get_default_field_kwargs(model, field):
+        return get_default_field_kwargs(model, field)
 
     class Meta:
         field_aliases = COMMON_SEARCH_FIELD_ALIASES
